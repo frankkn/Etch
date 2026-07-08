@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background: #0c0a09; /* stone-950 */
+  color: #e7e5e4; /* stone-200 */
+}
+
+.etch-content {
+  font-family: 'Noto Serif TC', ui-serif, Georgia, serif;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  line-height: 1.9;
+}

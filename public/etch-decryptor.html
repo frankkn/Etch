@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Etch 離線解密工具</title>
+<!--
+  這是一個完全自足的單檔 HTML：零外部依賴、零網路請求，可離線使用。
+  它能解密任何 etch-export v1 格式的匯出檔（規格見 repo 的 docs/EXPORT_FORMAT.md）。
+  就算 Etch 這個服務消失了，這個檔案配上你的通關密語，仍然打得開你的一生。
+  原始碼即規格：往下捲就能讀到全部實作。
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: #0c0a09; color: #e7e5e4;
+    font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif;
+    max-width: 42rem; margin: 0 auto; padding: 2rem 1rem;
+    line-height: 1.7;
+  }
+  h1 { font-size: 1.25rem; letter-spacing: 0.3em; margin-bottom: 0.5rem; }
+  p.hint { color: #78716c; font-size: 0.85rem; margin-bottom: 2rem; }
+  .field { margin-bottom: 1rem; }
+  label { display: block; font-size: 0.85rem; color: #a8a29e; margin-bottom: 0.3rem; }
+  input[type="password"], input[type="file"] {
+    width: 100%; padding: 0.5rem 0.75rem;
+    background: #1c1917; color: #e7e5e4;
+    border: 1px solid #44403c; border-radius: 4px; font-size: 0.9rem;
+  }
+  button {
+    padding: 0.5rem 1.5rem; background: none; color: #e7e5e4;
+    border: 1px solid #78716c; border-radius: 4px; cursor: pointer; font-size: 0.9rem;
+  }
+  button:hover { background: #292524; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  #error { color: #f87171; font-size: 0.9rem; margin-top: 1rem; white-space: pre-wrap; }
+  #output { margin-top: 2.5rem; }
+  .post {
+    border: 1px solid #292524; border-radius: 4px;
+    padding: 1.25rem; margin-bottom: 1.5rem; background: #16130f;
+  }
+  .post header {
+    display: flex; justify-content: space-between;
+    font-size: 0.75rem; color: #78716c; margin-bottom: 0.75rem;
+  }
+  .post .text {
+    font-family: "Noto Serif TC", ui-serif, Georgia, serif;
+    white-space: pre-wrap; overflow-wrap: break-word; line-height: 1.9;
+  }
+  .post.struck .text { text-decoration: line-through; color: #78716c; }
+  .struck-note { font-size: 0.75rem; color: #57534e; margin-top: 0.75rem; }
+  h2 { font-size: 1rem; color: #a8a29e; margin: 2rem 0 1rem; }
+</style>
+</head>
+<body>
+<h1>ETCH</h1>
+<p class="hint">
+  離線解密工具——本頁不連任何網路，全部運算都在你的裝置上進行（可拔網路線驗證）。
+  選擇 Etch 匯出檔、輸入通關密語，即可讀回你的一生。
+</p>
+
+<div class="field">
+  <label for="file">匯出檔（etch-export-*.json）</label>
+  <input type="file" id="file" accept=".json,application/json" />
+</div>
+<div class="field">
+  <label for="pass">通關密語</label>
+  <input type="password" id="pass" />
+</div>
+<button id="decrypt">解密</button>
+<p id="error"></p>
+<div id="output"></div>
+
+<script>
+'use strict';
+
+// ---- etch-export v1 解密實作（規格：docs/EXPORT_FORMAT.md）----
+
+function fromBase64(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function deriveKey(passphrase, kdf) {
+  if (kdf.algorithm !== 'PBKDF2-SHA256') {
+    throw new Error('不支援的 KDF 演算法：' + kdf.algorithm);
+  }
+  const material = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: fromBase64(kdf.salt), iterations: kdf.iterations, hash: 'SHA-256' },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false, ['decrypt']);
+}
+
+async function decryptText(key, ciphertextB64, ivB64) {
+  const pt = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: fromBase64(ivB64) }, key, fromBase64(ciphertextB64));
+  return new TextDecoder().decode(pt);
+}
+
+// ---- UI ----
+
+const fmt = (iso) => new Date(iso).toLocaleString('zh-TW',
+  { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+document.getElementById('decrypt').addEventListener('click', async () => {
+  const errorBox = document.getElementById('error');
+  const output = document.getElementById('output');
+  errorBox.textContent = '';
+  output.replaceChildren();
+
+  try {
+    const fileInput = document.getElementById('file');
+    if (!fileInput.files || fileInput.files.length === 0) throw new Error('請先選擇匯出檔');
+    const pass = document.getElementById('pass').value;
+    if (!pass) throw new Error('請輸入通關密語');
+
+    const data = JSON.parse(await fileInput.files[0].text());
+    if (data.format !== 'etch-export') throw new Error('這不是 Etch 匯出檔');
+    if (data.version !== 1) throw new Error('不支援的版本：' + data.version);
+
+    const key = await deriveKey(pass, data.kdf);
+
+    const postsTitle = el('h2', null,
+      '貼文（' + data.posts.length + ' 則，額度已用 ' + data.quotaUsed + ' / 100）');
+    output.appendChild(postsTitle);
+    for (const p of data.posts) {
+      let text;
+      try {
+        text = await decryptText(key, p.ciphertext, p.iv);
+      } catch {
+        throw new Error('解密失敗——通關密語錯誤，或檔案已損毀');
+      }
+      const card = el('article', 'post' + (p.struckAt ? ' struck' : ''));
+      const header = el('header');
+      // 現行格式 n 恆為數字（發布即定號）；null 檢查是對早期開發版匯出檔的容錯
+      header.appendChild(el('span', null, p.n === null ? '（未定號）' : 'No. ' + p.n + ' / 100'));
+      header.appendChild(el('time', null, fmt(p.etchedAt)));
+      card.appendChild(header);
+      card.appendChild(el('p', 'text', text));
+      if (p.struckAt) card.appendChild(el('p', 'struck-note', '於 ' + fmt(p.struckAt) + ' 劃掉'));
+      output.appendChild(card);
+    }
+
+    if (data.drafts.length > 0) {
+      output.appendChild(el('h2', null, '草稿墳場（' + data.drafts.length + ' 則）'));
+      for (const d of data.drafts) {
+        const text = await decryptText(key, d.ciphertext, d.iv);
+        const card = el('article', 'post');
+        const header = el('header');
+        header.appendChild(el('span', null, '草稿'));
+        header.appendChild(el('time', null, fmt(d.createdAt)));
+        card.appendChild(header);
+        card.appendChild(el('p', 'text', text));
+        output.appendChild(card);
+      }
+    }
+  } catch (e) {
+    errorBox.textContent = e instanceof Error ? e.message : String(e);
+  }
+});
+</script>
+</body>
+</html>
