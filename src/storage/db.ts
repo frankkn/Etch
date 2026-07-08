@@ -290,6 +290,22 @@ export async function setKdfParams(params: KdfParams): Promise<void> {
   await db.put('meta', params, 'kdfParams');
 }
 
+/** KCV（key check value）：用金鑰加密一段固定字串，解鎖時驗證密語正確。 */
+export interface Kcv {
+  ciphertext: string;
+  iv: string;
+}
+
+export async function getKcv(): Promise<Kcv | null> {
+  const db = await getDb();
+  return ((await db.get('meta', 'kcv')) as Kcv) ?? null;
+}
+
+export async function setKcv(kcv: Kcv): Promise<void> {
+  const db = await getDb();
+  await db.put('meta', kcv, 'kcv');
+}
+
 export async function isOnboarded(): Promise<boolean> {
   const db = await getDb();
   return ((await db.get('meta', 'onboarded')) as boolean) ?? false;

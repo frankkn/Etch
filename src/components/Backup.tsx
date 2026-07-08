@@ -13,6 +13,7 @@ import {
   type Post,
 } from '../storage/db';
 import { PassphraseDialog } from './PassphraseDialog';
+import { SyncSection } from './SyncSection';
 
 function downloadJson(filename: string, text: string) {
   const blob = new Blob([text], { type: 'application/json' });
@@ -84,6 +85,8 @@ export function Backup({
 
   return (
     <div className="space-y-8 text-sm">
+      <SyncSection storeEmpty={storeEmpty} onRestored={onImported} />
+
       <section>
         <h2 className="mb-2 text-base text-stone-100">匯出</h2>
         <p className="mb-3 leading-relaxed text-stone-500">

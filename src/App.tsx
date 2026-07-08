@@ -5,6 +5,7 @@ import { Onboarding } from './components/Onboarding';
 import { Timeline } from './components/Timeline';
 import { Write } from './components/Write';
 import { QUOTA_TOTAL } from './lib/constants';
+import { autoPushSoon } from './sync/engine';
 import {
   isOnboarded,
   listDrafts,
@@ -41,6 +42,7 @@ export default function App() {
     setPosts(p);
     setDrafts(d);
     setOnboardedState(ob);
+    autoPushSoon(); // 已登入且已解鎖時，本地變動後輕輕推一把雲端鏡像
   }, []);
 
   useEffect(() => {

@@ -1,0 +1,98 @@
+rules_version = '2';
+
+// Etch Security Rules——規則本身就是產品承諾。
+// 核心不變量（與 CLAUDE.md 產品規則一一對應）：
+//   1. 只有本人能碰自己的資料
+//   2. 可塑期（發布後 24 小時，錨定 etchedAt）內：可編輯、可刪除、編號可遞補
+//   3. 定形後：不可刪除；唯一放行的變更是「首次寫入 struckAt」（Strike，一次、不可逆）
+//   4. 編號 1–100；私密貼文只有密文，公開貼文只有明文，兩組欄位互斥
+//   5. 草稿是自由空間，隨意增刪改（內容必為密文，由客戶端保證）
+//
+// 已知限制（誠實記錄）：
+//   - 額度的嚴格計數（count(posts) < 100）rules 做不到，目前由 n ∈ [1,100] 給上界、
+//     quotaUsed 彙總欄位給分享頁顯示；嚴格的計數器交易驗證列為 Phase 2 收尾項
+//   - 「Reveal 明文必須雜湊等於 contentHash」rules 算不了 SHA-256 → Cloud Function（Phase 2 收尾）
+//   - 離線寫入延遲送達可能落在窗口外被拒——同步請在線上進行，這是刻意取捨
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+
+      allow read: if isOwner();
+      allow create, update: if isOwner()
+        && request.resource.data.quotaUsed is int
+        && request.resource.data.quotaUsed >= 0
+        && request.resource.data.quotaUsed <= 100;
+      allow delete: if false;
+
+      match /posts/{postId} {
+        function isOwner() {
+          return request.auth != null && request.auth.uid == uid;
+        }
+        function hardenAtMillis(p) {
+          return p.etchedAt.toMillis() + 24 * 60 * 60 * 1000;
+        }
+        function isMalleableNow(p) {
+          return request.time.toMillis() < hardenAtMillis(p);
+        }
+        function validShape(p) {
+          return p.n is int && p.n >= 1 && p.n <= 100
+            && p.visibility in ['private', 'public']
+            && p.contentHash is string && p.contentHash.size() == 64
+            && p.etchedAt is timestamp
+            && p.lastEditedAt is timestamp
+            && p.lastEditedAt.toMillis() >= p.etchedAt.toMillis()
+            && (p.struckAt == null || p.struckAt is timestamp)
+            && (
+              (p.visibility == 'private'
+                && p.ciphertext is string && p.iv is string
+                && !('plaintext' in p))
+              || (p.visibility == 'public'
+                && p.plaintext is string
+                && !('ciphertext' in p) && !('iv' in p))
+            );
+        }
+
+        allow read: if isOwner(); // 公開貼文的無登入讀取走分享頁（Phase 2 後段另開）
+
+        // 發布：etchedAt 不可指向未來（誠實時間軸），出生時不可能已被劃掉
+        allow create: if isOwner()
+          && validShape(request.resource.data)
+          && request.resource.data.struckAt == null
+          && request.resource.data.etchedAt.toMillis() <= request.time.toMillis();
+
+        // 可塑期內：編輯（含可見性切換）與編號遞補；發布時間與 Strike 狀態不可動
+        allow update: if isOwner()
+          && validShape(request.resource.data)
+          && isMalleableNow(resource.data)
+          && request.resource.data.etchedAt == resource.data.etchedAt
+          && request.resource.data.struckAt == null
+          && resource.data.struckAt == null
+          && (request.resource.data.n == resource.data.n
+              || request.resource.data.n == resource.data.n - 1);
+
+        // 定形後：唯一放行「首次寫入 struckAt」，其餘欄位一個都不能動
+        allow update: if isOwner()
+          && !isMalleableNow(resource.data)
+          && resource.data.struckAt == null
+          && request.resource.data.struckAt is timestamp
+          && request.resource.data.diff(resource.data).affectedKeys() == ['struckAt'].toSet();
+
+        // 刪除只存在於可塑期（額度退還）；定形後 delete 永遠 false
+        allow delete: if isOwner() && isMalleableNow(resource.data);
+      }
+
+      match /drafts/{draftId} {
+        function isOwner() {
+          return request.auth != null && request.auth.uid == uid;
+        }
+        // 草稿是唯一完全自由的空間
+        allow read, write: if isOwner();
+      }
+    }
+  }
+}
