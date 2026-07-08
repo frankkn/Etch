@@ -1,71 +1,77 @@
+<div align="right">
+
+**English** | [繁體中文](README.zh-TW.md)
+
+</div>
+
 # Etch
 
-**一生只能發 100 則貼文的自我反思 app。**
+**A self-reflection app where you can only ever publish 100 posts. For life.**
 
-🔗 線上版：**https://etch-5ae60.web.app**
+🔗 Live: **https://etch-5ae60.web.app**
 
-## 這是什麼
+## What is this
 
-Etch 的核心哲學是**稀缺性逼人認真**。真正的產品不是貼文功能，而是「要不要用掉這一則」的猶豫過程——那才是反思發生的地方。
+Etch is built on one idea: **scarcity forces sincerity**. The real product isn't the posting feature — it's the hesitation before spending one of your hundred. That's where reflection happens.
 
-每則貼文像刻在濕黏土上：剛刻完的 24 小時內還能修幾刀，時間一到準時進窯燒成陶——再也改不了。
+Every post is like carving into wet clay: for the first 24 hours you can still make a few corrections, then it fires into ceramic — permanently.
 
-### 規則
+### The rules
 
-- **一生只有 100 則額度**，用完就沒有了
-- **按下 Etch 立刻發布**：立刻取得編號（No. X / 100）、立刻用掉一則額度
-- **可塑期**：發布後 24 小時內可編輯（編號不變）、可刪除（額度退還）。窗口固定，編輯不延長
-- **定形**：24 小時一到，永遠不可編輯、不可刪除。唯一的例外是**劃掉（Strike）**——劃掉的貼文仍然可見、仍佔額度，代表「我曾經這樣想，現在不了」。每則只能劃掉一次，劃掉也不可逆
-- **沒有讚、沒有留言、沒有追蹤、沒有演算法**。貼文只有編號和時間；兩則之間的沉默也是內容
-- **預設完全私密**。每則可在出版當下選擇「刻給自己」或「刻給世界」，之後可雙向切換（Reveal / Unlist）
+- **You get 100 posts for life.** When they're gone, they're gone
+- **Etch publishes instantly**: you get your number (No. X / 100) and spend one slot immediately
+- **Malleable window**: for 24 hours after publishing you may edit (number unchanged) or delete (slot refunded). The window is fixed — editing does not extend it
+- **Hardening**: once 24 hours pass, the post can never be edited or deleted. The only exception is **Strike** — a strikethrough that says "I once thought this; I no longer do." The post stays visible, still counts against your quota, and striking is itself one-time and irreversible
+- **No likes, no comments, no followers, no algorithm.** Posts have only a number and a timestamp; the silence between two posts is content too
+- **Private by default.** At the moment of etching you choose: carved for yourself, or carved for the world — reversible later via Reveal / Unlist
 
-## 隱私與資料主權
+## Privacy and data sovereignty
 
-> 「私密貼文端對端加密，連我們都讀不到；公開貼文是你選擇給世界看的，以明文儲存。」
+> "Private posts are end-to-end encrypted — even we cannot read them. Public posts are what you chose to show the world, stored in plaintext."
 
-- **本地優先**：資料主體存在你裝置的 IndexedDB，不登入就能完整使用
-- **E2E 加密備份**：登入後可同步到雲端，但上傳前已在客戶端以你的**通關密語**加密（PBKDF2 600k + AES-256-GCM），伺服器只存密文。**密語遺失＝資料永久遺失**——沒有重設、沒有後門，這是特性不是缺陷
-- **你不需要我們**：
-  - 匯出功能給你一個加密 JSON 檔——[格式完全公開](docs/EXPORT_FORMAT.md)，只用標準密碼學原語，任何人都能自行實作解密器
-  - 附帶[單檔離線解密工具](public/etch-decryptor.html)（純 HTML + Web Crypto，零依賴、零網路請求）。就算 Etch 消失了，它配上你的密語仍然打得開你的一生
-- **分享**：一條不可猜測的隨機連結（可換鎖、可拆門），訪客只看得到你選擇公開的貼文——編號、空缺（「中間 X 則沉默」）與真實進度照留
-- **不變性是後端強制的**：可塑期、定形、Strike 一次、額度上限都寫在 [Firestore Security Rules](firestore.rules) 裡，並有 [Cloud Functions](functions/index.js) 做伺服器端仲裁——規則本身就是產品承諾
+- **Local-first**: your data lives in your device's IndexedDB. No account required for full functionality
+- **E2E encrypted backup**: signing in enables cloud sync, but everything is encrypted client-side with your **passphrase** (PBKDF2 600k + AES-256-GCM) before upload. The server only ever stores ciphertext. **Losing the passphrase means losing the data** — no reset, no backdoor. That's a feature, not a flaw
+- **You don't need us**:
+  - Export produces one encrypted JSON file — the [format is fully documented](docs/EXPORT_FORMAT.md), built only on standard cryptographic primitives, so anyone can implement a decryptor
+  - A [single-file offline decryptor](public/etch-decryptor.html) ships with the app (pure HTML + Web Crypto, zero dependencies, zero network). If Etch ever disappears, that file plus your passphrase still opens your life
+- **Sharing**: one unguessable random link (re-keyable, revocable). Visitors see only the posts you chose to make public — with numbering, gaps ("X posts of silence in between"), and your true progress intact
+- **Immutability is enforced server-side**: the malleable window, hardening, strike-once, and the quota cap are written into [Firestore Security Rules](firestore.rules), with [Cloud Functions](functions/index.js) as the final arbiter — the rules are the product promise
 
-## 技術棧
+## Stack
 
-Vite + React + TypeScript + Tailwind CSS｜IndexedDB（idb）｜Web Crypto API｜Firebase（Auth / Firestore / Hosting / Functions）
+Vite + React + TypeScript + Tailwind CSS | IndexedDB (idb) | Web Crypto API | Firebase (Auth / Firestore / Hosting / Functions)
 
-架構細節、產品規則的完整定義與 roadmap 見 [CLAUDE.md](CLAUDE.md)。
+Architecture details, the full product spec, and the roadmap live in [CLAUDE.md](CLAUDE.md) (Chinese).
 
-## 開發
+## Development
 
 ```bash
 npm install
-cp .env.example .env   # 填入 Firebase 專案設定（Console → 專案設定 → 你的應用程式）
+cp .env.example .env   # fill in your Firebase web app config (Console → Project settings → Your apps)
 npm run dev            # http://localhost:5173
 ```
 
-### 測試
+### Tests
 
 ```bash
-npm test               # 單元測試：crypto、儲存不變量、匯出格式、同步映射
-npm run test:rules     # Security Rules 測試（需 Java；以 emulator 模擬本人／別人／訪客三種身份）
+npm test               # unit tests: crypto, storage invariants, export format, sync mapping
+npm run test:rules     # Security Rules tests (requires Java; emulator simulates owner / stranger / visitor)
 ```
 
-改動 `firestore.rules` 必須先通過 `test:rules` 才能部署。
+Any change to `firestore.rules` must pass `test:rules` before deploying.
 
-### 部署
+### Deploy
 
 ```bash
 npm run build
 firebase deploy --only hosting,firestore:rules
-firebase deploy --only functions   # 需 Blaze 方案
+firebase deploy --only functions   # requires the Blaze plan
 ```
 
-## 刻意不做的事
+## Deliberately not building
 
-社交功能（讚、留言、追蹤、閱讀數）、通知轟炸、任何 engagement 優化、「忘記密語」的救援機制、富文本編輯器、假裝收回（不提供任何暗示「公開過的內容可以當作沒發生過」的功能），以及私密內容的後台審查工具——我們技術上就看不到。
+Social features (likes, comments, follows, view counts), notification spam, any engagement optimization, passphrase recovery, rich text editing, fake take-backs (nothing that implies published content can be un-seen), and moderation tooling for private content — we technically cannot read it.
 
 ---
 
-用完就沒有了。這不是限制，是為了讓每一則都值得。
+When they're gone, they're gone. That's not a limitation — it's what makes each one worth it.
