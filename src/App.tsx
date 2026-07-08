@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Backup } from './components/Backup';
-import { Graveyard } from './components/Graveyard';
+import { Drafts } from './components/Drafts';
 import { Onboarding } from './components/Onboarding';
 import { Timeline } from './components/Timeline';
 import { Write } from './components/Write';
@@ -14,7 +14,7 @@ import {
   type Post,
 } from './storage/db';
 
-export type View = 'timeline' | 'write' | 'graveyard' | 'backup';
+export type View = 'timeline' | 'write' | 'drafts' | 'backup';
 
 type Editing =
   | { kind: 'draft'; id: string }
@@ -24,7 +24,7 @@ type Editing =
 const NAV: Array<{ view: View; label: string }> = [
   { view: 'timeline', label: '時間軸' },
   { view: 'write', label: '寫作' },
-  { view: 'graveyard', label: '草稿墳場' },
+  { view: 'drafts', label: '草稿' },
   { view: 'backup', label: '備份' },
 ];
 
@@ -101,7 +101,7 @@ export default function App() {
             }`}
           >
             {label}
-            {v === 'graveyard' && drafts.length > 0 && (
+            {v === 'drafts' && drafts.length > 0 && (
               <span className="ml-1.5 text-xs text-stone-600">
                 {drafts.length}
               </span>
@@ -124,8 +124,8 @@ export default function App() {
         {view === 'write' && (
           <Write target={editingTarget} quotaUsed={quotaUsed} onDone={finish} />
         )}
-        {view === 'graveyard' && (
-          <Graveyard
+        {view === 'drafts' && (
+          <Drafts
             drafts={drafts}
             quotaUsed={quotaUsed}
             onEdit={(id) => {
@@ -133,6 +133,7 @@ export default function App() {
               setView('write');
             }}
             onEtched={() => finish('timeline')}
+            onChanged={refresh}
           />
         )}
         {view === 'backup' && (

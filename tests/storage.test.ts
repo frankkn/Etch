@@ -5,6 +5,7 @@ import { createKdfParams } from '../src/crypto';
 import { MALLEABLE_WINDOW_MS, QUOTA_TOTAL } from '../src/lib/constants';
 import {
   _closeDbForTests,
+  deleteDraft,
   deletePost,
   editPost,
   etchDraft,
@@ -52,10 +53,10 @@ describe('立即發布與編號', () => {
     expect(b.n).toBe(2);
   });
 
-  it('從草稿出版：貼文寫入、草稿移出墳場', async () => {
-    const draft = await saveDraft('躺過墳場的話');
+  it('從草稿出版：貼文寫入、草稿刪除', async () => {
+    const draft = await saveDraft('放了很久的話');
     const post = await etchDraft(draft.id);
-    expect(post.text).toBe('躺過墳場的話');
+    expect(post.text).toBe('放了很久的話');
     expect(post.n).toBe(1);
     expect(await listDrafts()).toHaveLength(0);
   });
@@ -156,19 +157,21 @@ describe('Strike 與不可逆性', () => {
     expect(await getQuotaUsed()).toBe(1);
   });
 
-  it('儲存層不提供刪除草稿的 API（草稿墳場）', async () => {
-    const db = await import('../src/storage/db');
-    expect('deleteDraft' in db).toBe(false);
-  });
 });
 
-describe('草稿', () => {
+describe('草稿（唯一完全自由的空間）', () => {
   it('儲存與編輯草稿', async () => {
     const draft = await saveDraft('初稿');
     const edited = await saveDraft('改過的稿', draft.id);
     expect(edited.id).toBe(draft.id);
     expect(edited.createdAt).toBe(draft.createdAt);
     expect(await listDrafts()).toHaveLength(1);
+  });
+
+  it('草稿可自由刪除（真刪除，不留痕跡）', async () => {
+    const draft = await saveDraft('想想還是算了');
+    await deleteDraft(draft.id);
+    expect(await listDrafts()).toHaveLength(0);
   });
 });
 

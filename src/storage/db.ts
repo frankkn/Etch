@@ -128,7 +128,7 @@ export async function etchText(text: string, now = new Date()): Promise<Post> {
   return post;
 }
 
-/** 出版既有草稿：寫入貼文、移出墳場，單一交易。 */
+/** 出版既有草稿：寫入貼文、刪除草稿，單一交易。 */
 export async function etchDraft(draftId: string, now = new Date()): Promise<Post> {
   const db = await getDb();
   const tx = db.transaction(['posts', 'drafts'], 'readwrite');
@@ -199,7 +199,7 @@ export async function strikePost(id: string, now = new Date()): Promise<Post> {
 }
 
 // ---- drafts ----
-// 草稿墳場：沒有 deleteDraft，草稿只會因為被 Etch 而離開。
+// 草稿是唯一完全自由的空間：可編輯、可刪除（真刪除），無時間約束。
 
 export async function listDrafts(): Promise<Draft[]> {
   const db = await getDb();
@@ -226,6 +226,11 @@ export async function saveDraft(
   await tx.store.put(draft);
   await tx.done;
   return draft;
+}
+
+export async function deleteDraft(id: string): Promise<void> {
+  const db = await getDb();
+  await db.delete('drafts', id);
 }
 
 // ---- meta ----

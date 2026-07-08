@@ -74,7 +74,7 @@ export function Write({
         </p>
       ) : exhausted ? (
         <p className="rounded border border-stone-800 bg-stone-900/40 p-4 text-sm text-stone-400">
-          你的 {QUOTA_TOTAL} 則已經用完了。仍然可以寫，但寫下的只會留在草稿墳場。
+          你的 {QUOTA_TOTAL} 則已經用完了。仍然可以寫，但只能存成草稿。
         </p>
       ) : null}
       <textarea
@@ -110,7 +110,7 @@ export function Write({
                     text,
                     target.kind === 'draft' ? target.draft.id : undefined,
                   );
-                  await onDone('graveyard');
+                  await onDone('drafts');
                 })
               }
               className="rounded px-4 py-2 text-sm text-stone-400 transition-colors hover:text-stone-200 disabled:cursor-not-allowed disabled:opacity-40"

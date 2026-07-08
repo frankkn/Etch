@@ -155,7 +155,7 @@ document.getElementById('decrypt').addEventListener('click', async () => {
     }
 
     if (data.drafts.length > 0) {
-      output.appendChild(el('h2', null, '草稿墳場（' + data.drafts.length + ' 則）'));
+      output.appendChild(el('h2', null, '草稿（' + data.drafts.length + ' 則）'));
       for (const d of data.drafts) {
         const text = await decryptText(key, d.ciphertext, d.iv);
         const card = el('article', 'post');
