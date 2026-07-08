@@ -7,15 +7,13 @@ import {
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// firebaseConfig 不是秘密：它只是專案的公開識別。
-// 安全來自 Security Rules（firestore.rules）與客戶端 E2E 加密。
 const firebaseConfig = {
-  apiKey: 'REDACTED_FIREBASE_API_KEY',
-  authDomain: 'etch-5ae60.firebaseapp.com',
-  projectId: 'etch-5ae60',
-  storageBucket: 'etch-5ae60.firebasestorage.app',
-  messagingSenderId: '87978711432',
-  appId: '1:87978711432:web:eb4515a614ea1ce88b423d',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 export const app = initializeApp(firebaseConfig);
