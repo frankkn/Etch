@@ -15,6 +15,7 @@ import {
   strikePost,
   type Post,
 } from '../storage/db';
+import { unlistNeedsUnlock } from '../sync/engine';
 
 export function Timeline({
   posts,
@@ -234,6 +235,9 @@ function HardenedPostCard({
           <div className="flex flex-col items-end gap-2">
             <p className="max-w-md text-right text-stone-400">
               {ACTION_COPY[action].warning}
+              {action === 'unlist' &&
+                unlistNeedsUnlock() &&
+                '（你尚未解鎖同步：這則會在下次解鎖同步後才從分享頁收回。）'}
             </p>
             <div className="flex gap-2">
               <button

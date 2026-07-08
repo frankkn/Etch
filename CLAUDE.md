@@ -163,6 +163,7 @@ publicSlugs/{slug} → { uid, quotaUsed }  # 分享頁查詢用；重生 slug = 
 - [x] Reveal / Unlist 切換（定形後亦可；Unlist 顯示誠實警語「已看過的人、截圖與網路快取無法收回」；Rules 只放行欄位對調且 contentHash 不可變）
 - [x] 連結重生（Regenerate slug；另加「停用連結」——拆門但不動貼文可見性）
 - [x] Cloud Function 驗證 Reveal 明文與 contentHash 相符（`functions/index.js`，不符即回滾）
+- [x] 公開路徑與通關密語解耦（貫徹「登入身份與內容解密刻意分離」）：登入即可管理分享連結、同步公開內容（`pushPublic`，無金鑰——公開貼文增刪改、Reveal、Strike、編號遞補、quotaUsed 對帳）；私密內容與草稿的上傳仍需解鎖。可塑期內的 Unlist 以刪除雲端文件立即下架、解鎖後補回密文；**定形後的 Unlist 需要金鑰重新加密，未解鎖時分享頁要等到下次解鎖同步才收回（UI 已加註警語）**。安全邊界：雲端已有加密備份而本機從未同步過的新裝置整個拒推，防誤刪
 
 **Phase 2 收尾項（程式碼全數完成，只差一個開關）：**
 

@@ -5,9 +5,9 @@ import {
   disableShare,
   enableShare,
   getShareSlug,
-  pushAll,
   regenerateShare,
   restoreAll,
+  syncNow,
   unlockSync,
 } from '../sync/engine';
 import { auth, signInWithGoogle, signOutUser } from '../sync/firebase';
@@ -62,7 +62,7 @@ export function SyncSection({
     setBusy(true);
     setMessage(null);
     try {
-      setMessage(await pushAll());
+      setMessage(await syncNow()); // 有金鑰走完整同步，沒有就只推公開內容
     } catch (e) {
       setMessage(e instanceof Error ? e.message : String(e));
     } finally {
@@ -114,32 +114,46 @@ export function SyncSection({
                 從雲端還原
               </button>
             </>
-          ) : !unlocked ? (
-            <>
-              <p className="leading-relaxed text-stone-500">
-                {firstTime
-                  ? '設定通關密語後即可開始同步。密語用來加密雲端備份，與登入密碼無關。'
-                  : '輸入通關密語解鎖同步。金鑰只存在記憶體，關閉分頁即消失。'}
-              </p>
-              <button
-                onClick={() => setDialog('unlock')}
-                className="rounded border border-stone-600 px-5 py-2 text-stone-100 hover:bg-stone-800"
-              >
-                {firstTime ? '設定密語並開始同步' : '解鎖同步'}
-              </button>
-            </>
           ) : (
             <>
-              <p className="text-stone-500">
-                同步已解鎖。每次變動後會自動推送，也可以手動同步。
-              </p>
-              <button
-                disabled={busy}
-                onClick={() => void runSync()}
-                className="rounded border border-stone-600 px-5 py-2 text-stone-100 hover:bg-stone-800 disabled:opacity-40"
-              >
-                {busy ? '同步中⋯' : '立即同步'}
-              </button>
+              {!unlocked ? (
+                <>
+                  <p className="leading-relaxed text-stone-500">
+                    {firstTime
+                      ? '設定通關密語後即可同步私密內容。密語用來加密雲端備份，與登入密碼無關。'
+                      : '輸入通關密語解鎖同步。金鑰只存在記憶體，關閉分頁即消失。'}
+                    公開貼文與分享連結只要登入就會同步，不需要密語。
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setDialog('unlock')}
+                      className="rounded border border-stone-600 px-5 py-2 text-stone-100 hover:bg-stone-800"
+                    >
+                      {firstTime ? '設定密語並開始同步' : '解鎖同步'}
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() => void runSync()}
+                      className="rounded border border-stone-700 px-5 py-2 text-stone-300 hover:bg-stone-800 disabled:opacity-40"
+                    >
+                      {busy ? '同步中⋯' : '同步公開內容'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-stone-500">
+                    同步已解鎖。每次變動後會自動推送，也可以手動同步。
+                  </p>
+                  <button
+                    disabled={busy}
+                    onClick={() => void runSync()}
+                    className="rounded border border-stone-600 px-5 py-2 text-stone-100 hover:bg-stone-800 disabled:opacity-40"
+                  >
+                    {busy ? '同步中⋯' : '立即同步'}
+                  </button>
+                </>
+              )}
               <ShareLinkManager />
             </>
           )}
@@ -230,6 +244,12 @@ function ShareLinkManager() {
               void run(async () => {
                 const slug = await enableShare();
                 setState({ kind: 'on', slug });
+                // 立即推送一次，分享頁才不會開門見空屋
+                setNote(
+                  await syncNow().catch((e) =>
+                    e instanceof Error ? e.message : String(e),
+                  ),
+                );
               })
             }
             className="rounded border border-stone-600 px-5 py-2 text-stone-100 hover:bg-stone-800 disabled:opacity-40"

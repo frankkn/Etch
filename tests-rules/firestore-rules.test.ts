@@ -107,6 +107,12 @@ describe('身份界線', () => {
     await assertFails(setDoc(doc(alice(), 'users/alice'), { quotaUsed: -1 }));
   });
 
+  it('users 文件可只更新 quotaUsed（merge）——公開路徑同步的對帳寫法', async () => {
+    await assertSucceeds(
+      setDoc(doc(alice(), 'users/alice'), { quotaUsed: 2 }, { merge: true }),
+    );
+  });
+
   it('別人不能碰我的貼文與草稿', async () => {
     await seed('users/alice/posts/p1', freshPost());
     await assertFails(getDoc(doc(mallory(), 'users/alice/posts/p1')));
@@ -170,6 +176,18 @@ describe('發布（create）', () => {
 });
 
 describe('可塑期（發布後 24 小時）', () => {
+  it('編號可連續遞補（一次一位）；一次跳兩位拒絕', async () => {
+    // engine 的 stepDownN 依賴這個行為：跨多位遞補時逐步降
+    await seed('users/alice/posts/p1', freshPost({ n: 5 }));
+    await assertFails(updateDoc(doc(alice(), 'users/alice/posts/p1'), { n: 3 }));
+    await assertSucceeds(
+      updateDoc(doc(alice(), 'users/alice/posts/p1'), { n: 4 }),
+    );
+    await assertSucceeds(
+      updateDoc(doc(alice(), 'users/alice/posts/p1'), { n: 3 }),
+    );
+  });
+
   it('可編輯內容（etchedAt 不可動）、編號可遞補一位、可刪除', async () => {
     await seed('users/alice/posts/p1', freshPost({ n: 5 }));
     await assertSucceeds(
@@ -235,6 +253,30 @@ describe('定形（發布超過 24 小時）', () => {
         plaintext: '假的原文',
         contentHash: 'd'.repeat(64), // 想換錨點——擋
       }),
+    );
+  });
+
+  it('Reveal：欄位真正對調（明文入、密文移除）且 contentHash 不變 → 放行', async () => {
+    // engine 的 pushPublic 依賴：Reveal 不需要金鑰也能在定形後完成
+    await seed('users/alice/posts/p1', hardenedPost());
+    const { deleteField } = await import('firebase/firestore');
+    await assertSucceeds(
+      updateDoc(doc(alice(), 'users/alice/posts/p1'), {
+        visibility: 'public',
+        plaintext: '多年後決定讓它見光',
+        ciphertext: deleteField(),
+        iv: deleteField(),
+      }),
+    );
+  });
+
+  it('補回定形貼文（兩段式）：先以未劃掉的樣子建立，再首次寫入 struckAt', async () => {
+    // engine 的 putPostDoc 依賴：可塑期內 Unlist 刪除的雲端文件，解鎖後要能重建
+    await assertSucceeds(
+      setDoc(doc(alice(), 'users/alice/posts/p1'), hardenedPost()),
+    );
+    await assertSucceeds(
+      updateDoc(doc(alice(), 'users/alice/posts/p1'), { struckAt: ts(0) }),
     );
   });
 

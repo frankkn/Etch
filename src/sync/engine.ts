@@ -10,6 +10,7 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
+  type DocumentReference,
 } from 'firebase/firestore';
 import {
   createKdfParams,
@@ -29,6 +30,7 @@ import {
   setKcv,
   setKdfParams,
   type Kcv,
+  type Post,
 } from '../storage/db';
 import { auth, db } from './firebase';
 import { getSessionKey, setSessionKey } from './keySession';
@@ -101,6 +103,36 @@ export async function unlockSync(passphrase: string): Promise<void> {
   setSessionKey(key);
 }
 
+/** 編號遞補：Rules 一次只准減一，跨多位時逐步降到目標值。 */
+async function stepDownN(
+  ref: DocumentReference,
+  from: number,
+  to: number,
+): Promise<void> {
+  for (let k = from - 1; k >= to; k--) {
+    await updateDoc(ref, { n: k });
+  }
+}
+
+/**
+ * 寫入整份貼文文件。定形且已劃掉的貼文無法一次建立（create 不收 struckAt）：
+ * 先以未劃掉的樣子建立，再走「定形後首次 Strike」的規則分支補上。
+ */
+async function putPostDoc(
+  ref: DocumentReference,
+  post: Post,
+  data: CloudPost,
+): Promise<void> {
+  if (!isMalleable(post) && post.struckAt !== null) {
+    await setDoc(ref, { ...data, struckAt: null });
+    await updateDoc(ref, {
+      struckAt: Timestamp.fromMillis(Date.parse(post.struckAt)),
+    });
+  } else {
+    await setDoc(ref, data);
+  }
+}
+
 /**
  * 推送：本地為主，雲端是本地的鏡像。
  * - 新增/可塑期變更 → 整份覆寫（Rules 在可塑期內放行）
@@ -139,7 +171,11 @@ export async function pushAll(): Promise<string> {
     cloudPostById.delete(post.id);
     if (cloud && !cloudPostDiffers(post, cloud)) continue;
     if (!cloud || isMalleable(post)) {
-      await setDoc(doc(postsCol, post.id), await toCloudPost(post, key));
+      const ref = doc(postsCol, post.id);
+      if (cloud && cloud.n > post.n + 1) {
+        await stepDownN(ref, cloud.n, post.n + 1); // 最後一位由整份覆寫一起完成
+      }
+      await putPostDoc(ref, post, await toCloudPost(post, key));
       uploaded++;
       continue;
     }
@@ -221,6 +257,151 @@ export async function pushAll(): Promise<string> {
     `已同步：上傳 ${uploaded}、刪除 ${removed}` +
     (skipped > 0 ? `、略過 ${skipped}（見主控台）` : '')
   );
+}
+
+/**
+ * 公開路徑同步（登入即可，不需要通關密語）：只推送無需金鑰的變更。
+ * 涵蓋：公開貼文的新增／編輯／刪除、Reveal（含定形後）、Strike、
+ * 編號遞補（公私貼文的 n 都是明文 metadata）、quotaUsed 對帳。
+ * 不涵蓋（需解鎖）：私密貼文內容與草稿的上傳、定形後的 Unlist——
+ * 這些需要金鑰產生密文，留給解鎖後的 pushAll。
+ * 可塑期內的 Unlist 以「刪除雲端文件」立即下架，解鎖後由 pushAll 補回密文版本。
+ *
+ * 安全邊界：雲端已有加密備份（kdfParams 存在）而本機從未同步過（新裝置尚未還原）
+ * 時整個拒推，避免把別台裝置的備份誤當成「本地已刪除」而清掉。
+ */
+export async function pushPublic(): Promise<string> {
+  const uid = requireUid();
+  const [kdf, kcv] = await Promise.all([getKdfParams(), getKcv()]);
+  const established = kdf !== null && kcv !== null;
+  const cloudUser = await fetchUserDoc(uid);
+  if (!established && cloudUser?.kdfParams) {
+    throw new Error(
+      '這台裝置尚未同步過。請先「從雲端還原」或解鎖同步，避免覆寫雲端備份',
+    );
+  }
+
+  const posts = await listPosts();
+  const postsCol = collection(db, 'users', uid, 'posts');
+  const cloudPosts = await getDocs(postsCol);
+  const cloudPostById = new Map(
+    cloudPosts.docs.map((d) => [d.id, d.data() as CloudPost]),
+  );
+
+  let uploaded = 0;
+  let removed = 0;
+  let pending = 0;
+
+  for (const post of posts) {
+    const cloud = cloudPostById.get(post.id);
+    cloudPostById.delete(post.id);
+    if (cloud && !cloudPostDiffers(post, cloud)) continue;
+    const ref = doc(postsCol, post.id);
+
+    if (post.visibility === 'public') {
+      if (!cloud || isMalleable(post)) {
+        if (cloud && cloud.n > post.n + 1) {
+          await stepDownN(ref, cloud.n, post.n + 1);
+        }
+        await putPostDoc(ref, post, await toCloudPost(post, null));
+        uploaded++;
+      } else {
+        // 定形的公開貼文：無金鑰可完成的只有 Strike 與 Reveal
+        let touched = false;
+        if (
+          post.struckAt !== null &&
+          (cloud.struckAt === null || cloud.struckAt === undefined)
+        ) {
+          await updateDoc(ref, {
+            struckAt: Timestamp.fromMillis(Date.parse(post.struckAt)),
+          });
+          touched = true;
+        }
+        if (cloud.visibility === 'private') {
+          await updateDoc(ref, {
+            visibility: 'public',
+            plaintext: post.text,
+            ciphertext: deleteField(),
+            iv: deleteField(),
+          });
+          touched = true;
+        }
+        if (touched) {
+          uploaded++;
+        } else {
+          console.warn(`公開同步略過 No. ${post.n}（定形後出現非法差異）`);
+          pending++;
+        }
+      }
+    } else if (!cloud) {
+      pending++; // 新的私密貼文：內容需要金鑰加密，等解鎖
+    } else if (cloud.visibility === 'public') {
+      // Unlist：無金鑰寫不出密文。可塑期內先刪雲端文件立即下架；定形後只能等解鎖
+      if (isMalleable(post)) {
+        await deleteDoc(ref);
+        removed++;
+      }
+      pending++; // 兩種情況都要在解鎖後補上密文版本
+    } else {
+      // 私密 → 私密：無金鑰能推進的只有編號遞補與 Strike；內容變更等解鎖
+      let touched = false;
+      if (cloud.n > post.n) {
+        await stepDownN(ref, cloud.n, post.n);
+        touched = true;
+      }
+      if (
+        post.struckAt !== null &&
+        (cloud.struckAt === null || cloud.struckAt === undefined)
+      ) {
+        await updateDoc(ref, {
+          struckAt: Timestamp.fromMillis(Date.parse(post.struckAt)),
+        });
+        touched = true;
+      }
+      if (
+        cloud.contentHash !== post.contentHash ||
+        cloud.lastEditedAt.toDate().toISOString() !== post.lastEditedAt
+      ) {
+        pending++;
+      } else if (touched) {
+        uploaded++;
+      }
+    }
+  }
+
+  // 本地不存在的雲端貼文 → 刪除。頂部的安全邊界已保證：能走到這裡，
+  // 這台裝置要嘛已建立同步關係（本地為主），要嘛雲端沒有加密備份可誤刪
+  for (const id of cloudPostById.keys()) {
+    await deleteDoc(doc(postsCol, id));
+    removed++;
+  }
+
+  await setDoc(
+    doc(db, 'users', uid),
+    { quotaUsed: posts.length, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
+  if (cloudUser?.publicSlug) {
+    await setDoc(doc(db, 'publicSlugs', cloudUser.publicSlug), {
+      uid,
+      quotaUsed: posts.length,
+    });
+  }
+
+  return (
+    `已同步公開內容：上傳 ${uploaded}、刪除 ${removed}` +
+    (pending > 0 ? `；${pending} 則私密變更待解鎖後同步` : '')
+  );
+}
+
+/** 依解鎖狀態選路：有金鑰走完整同步，沒有就走公開路徑。 */
+export function syncNow(): Promise<string> {
+  return getSessionKey() ? pushAll() : pushPublic();
+}
+
+/** 已登入但未解鎖時，定形貼文的 Unlist 無法立即從分享頁收回——UI 用來加註警語。 */
+export function unlistNeedsUnlock(): boolean {
+  return auth.currentUser !== null && getSessionKey() === null;
 }
 
 /**
@@ -318,10 +499,10 @@ export async function disableShare(): Promise<void> {
 let autoPushTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function autoPushSoon(): void {
-  if (!auth.currentUser || !getSessionKey()) return;
+  if (!auth.currentUser) return;
   if (autoPushTimer) clearTimeout(autoPushTimer);
   autoPushTimer = setTimeout(() => {
     autoPushTimer = null;
-    pushAll().catch((e) => console.warn('自動同步失敗（稍後可手動同步）：', e));
+    syncNow().catch((e) => console.warn('自動同步失敗（稍後可手動同步）：', e));
   }, 2_000);
 }

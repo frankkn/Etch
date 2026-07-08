@@ -31,7 +31,10 @@ export interface CloudDraft {
 const toTs = (iso: string) => Timestamp.fromMillis(Date.parse(iso));
 const fromTs = (ts: Timestamp) => ts.toDate().toISOString();
 
-export async function toCloudPost(post: Post, key: CryptoKey): Promise<CloudPost> {
+export async function toCloudPost(
+  post: Post,
+  key: CryptoKey | null,
+): Promise<CloudPost> {
   const base = {
     n: post.n,
     visibility: post.visibility,
@@ -43,6 +46,7 @@ export async function toCloudPost(post: Post, key: CryptoKey): Promise<CloudPost
   if (post.visibility === 'public') {
     return { ...base, plaintext: post.text };
   }
+  if (!key) throw new Error('私密貼文需要解鎖金鑰才能上傳');
   const blob = await encryptText(key, post.text);
   return { ...base, ciphertext: blob.ciphertext, iv: blob.iv };
 }

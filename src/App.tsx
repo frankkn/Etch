@@ -42,7 +42,7 @@ export default function App() {
     setPosts(p);
     setDrafts(d);
     setOnboardedState(ob);
-    autoPushSoon(); // 已登入且已解鎖時，本地變動後輕輕推一把雲端鏡像
+    autoPushSoon(); // 已登入時，本地變動後輕輕推一把雲端鏡像（未解鎖只推公開內容）
   }, []);
 
   useEffect(() => {
