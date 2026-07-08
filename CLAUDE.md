@@ -190,6 +190,7 @@ publicSlugs/{slug} → { uid, quotaUsed }  # 分享頁查詢用；重生 slug = 
 
 - 任何功能實作前先問：這會不會削弱「稀缺、不可逆、私密」三個核心？會就不做
 - 不變性與可塑期窗口必須同時在客戶端與 Security Rules 兩層強制，UI 只是第一道
+- `firestore.rules` 有 emulator 測試（`npm run test:rules`，需 Java）：模擬本人／別人／未登入訪客三種身份驗證所有規則分支。**改 rules 必跑**，通過才准 `firebase deploy --only firestore:rules`
 - Crypto 相關代碼要有測試，且不要自己發明密碼學——只用 Web Crypto API 標準原語
 - 私密貼文的明文永遠不離開客戶端；任何新的網路請求都要檢查 payload 是否只含密文與 metadata。唯一例外：用戶明確選擇公開的貼文明文
 - 涉及可見性的 UI 文案，寧可嚇跑用戶也不可過度承諾
