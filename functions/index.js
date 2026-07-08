@@ -43,3 +43,46 @@ exports.verifyContentHash = onDocumentWritten(
     );
   },
 );
+
+// enforceQuota：額度的嚴格計數（Phase 2 收尾項）。
+// Security Rules 數不了集合，只能用 n ∈ [1,100] 給上界——惡意客戶端仍可能塞出
+// 重複編號或操弄彙總欄位。這個 trigger 用伺服器端 count 做最終仲裁：
+//   1. 超過 100 則：剛建立的那筆直接刪除（一生只有 100 則，不是建議，是物理）
+//   2. 對帳：users.quotaUsed 與 publicSlugs/{slug}.quotaUsed 以真實 count 為準
+exports.enforceQuota = onDocumentWritten(
+  'users/{uid}/posts/{postId}',
+  async (event) => {
+    const db = admin.firestore();
+    const { uid } = event.params;
+    const postsCol = db.collection(`users/${uid}/posts`);
+
+    const countSnap = await postsCol.count().get();
+    const count = countSnap.data().count;
+
+    const before = event.data && event.data.before;
+    const after = event.data && event.data.after;
+    const isCreate = after && after.exists && (!before || !before.exists);
+
+    if (count > 100 && isCreate) {
+      await after.ref.delete(); // 會再觸發一次本函式，屆時 count ≤ 100 走對帳路徑
+      console.warn(`額度超限，已回收：users/${uid}/posts/${event.params.postId}`);
+      return;
+    }
+
+    // 對帳彙總欄位（客戶端寫錯或漂移時，以伺服器計數為準）
+    const userRef = db.doc(`users/${uid}`);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) return;
+    if (userSnap.get('quotaUsed') !== count) {
+      await userRef.set({ quotaUsed: count }, { merge: true });
+    }
+    const slug = userSnap.get('publicSlug');
+    if (slug) {
+      const slugRef = db.doc(`publicSlugs/${slug}`);
+      const slugSnap = await slugRef.get();
+      if (slugSnap.exists && slugSnap.get('quotaUsed') !== count) {
+        await slugRef.set({ uid, quotaUsed: count }, { merge: true });
+      }
+    }
+  },
+);

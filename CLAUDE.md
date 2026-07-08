@@ -134,7 +134,7 @@ publicSlugs/{slug} → { uid, quotaUsed }  # 分享頁查詢用；重生 slug = 
 - 樣式：Tailwind CSS
 - 本地儲存：IndexedDB（用 `idb` 輕量 wrapper）
 - Firebase 設定走 `VITE_FIREBASE_*` 環境變數（`.env`，範本見 `.env.example`）
-- 部署：Firebase Hosting 或 Vercel（SPA 需 rewrite 全部路徑到 index.html，`/s/{slug}` 才進得來）
+- 部署：**Firebase Hosting，已上線 https://etch-5ae60.web.app**。`npm run build && firebase deploy --only hosting,firestore:rules`（rules 一律走 CLI 發布，repo 的 `firestore.rules` 就是唯一真相；SPA rewrite 已設定，`/s/{slug}` 直達分享頁）
 
 ## Roadmap
 
@@ -164,10 +164,12 @@ publicSlugs/{slug} → { uid, quotaUsed }  # 分享頁查詢用；重生 slug = 
 - [x] 連結重生（Regenerate slug；另加「停用連結」——拆門但不動貼文可見性）
 - [x] Cloud Function 驗證 Reveal 明文與 contentHash 相符（`functions/index.js`，不符即回滾）
 
-**Phase 2 收尾項（實作完成度以外的最後兩塊）：**
+**Phase 2 收尾項（程式碼全數完成，只差一個開關）：**
 
-- [ ] **Cloud Function 部署**：需在 Console 升級 Blaze 方案（綁卡；本產品的用量實際費用為 0），再 `firebase deploy --only functions`。未部署前「Reveal 明文＝contentHash」的驗證信任客戶端——單人使用零風險，開放他人使用前必須補上
-- [ ] **額度嚴格計數**：rules 無法 count 集合，目前額度靠 `n ∈ [1,100]` 給上界 + 客戶端強制。嚴格版要走 counter pattern（每筆 post 建立/刪除與 `users.quotaUsed` 同批交易，rules 用 `getAfter()` 驗證一致性），代價是同步得逐則批次寫入。同樣是開放他人使用前的必要項
+- [ ] **升級 Blaze 並部署 Cloud Functions**：Console 升級 Blaze 方案（綁卡；本產品的用量實際費用為 0）→ `firebase deploy --only functions`。一次部署兩個函式（`functions/index.js`）：
+  - `verifyContentHash`：Reveal 明文＝contentHash 的伺服器端驗證，不符即回滾
+  - `enforceQuota`：額度嚴格計數——rules 數不了集合，函式用伺服器端 count 仲裁：超過 100 則直接回收新建文件，並對帳 `users.quotaUsed` / `publicSlugs.quotaUsed` 彙總欄位
+  - 未部署前這兩層信任客戶端——單人使用零風險，**開放他人使用前必須部署**
 
 ### Phase 3 — 之後再說
 - [ ] 週年回訪通知 + 批註（每則限一次，不扣額度）
