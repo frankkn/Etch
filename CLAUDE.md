@@ -162,7 +162,12 @@ publicSlugs/{slug} → { uid, quotaUsed }  # 分享頁查詢用；重生 slug = 
 - [x] 公開貼文明文同步 + 分享頁 `/s/{slug}`（無登入讀取；空缺可視化「中間 X 則沉默」+ 真實進度「已刻 X / 100」；`src/components/SharePage.tsx`）
 - [x] Reveal / Unlist 切換（定形後亦可；Unlist 顯示誠實警語「已看過的人、截圖與網路快取無法收回」；Rules 只放行欄位對調且 contentHash 不可變）
 - [x] 連結重生（Regenerate slug；另加「停用連結」——拆門但不動貼文可見性）
-- [x] Cloud Function 驗證 Reveal 明文與 contentHash 相符（`functions/index.js`，不符即回滾；**部署需升級 Blaze 後 `firebase deploy --only functions`**，未部署前信任客戶端）
+- [x] Cloud Function 驗證 Reveal 明文與 contentHash 相符（`functions/index.js`，不符即回滾）
+
+**Phase 2 收尾項（實作完成度以外的最後兩塊）：**
+
+- [ ] **Cloud Function 部署**：需在 Console 升級 Blaze 方案（綁卡；本產品的用量實際費用為 0），再 `firebase deploy --only functions`。未部署前「Reveal 明文＝contentHash」的驗證信任客戶端——單人使用零風險，開放他人使用前必須補上
+- [ ] **額度嚴格計數**：rules 無法 count 集合，目前額度靠 `n ∈ [1,100]` 給上界 + 客戶端強制。嚴格版要走 counter pattern（每筆 post 建立/刪除與 `users.quotaUsed` 同批交易，rules 用 `getAfter()` 驗證一致性），代價是同步得逐則批次寫入。同樣是開放他人使用前的必要項
 
 ### Phase 3 — 之後再說
 - [ ] 週年回訪通知 + 批註（每則限一次，不扣額度）
