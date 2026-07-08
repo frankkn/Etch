@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { deleteDB } from 'idb';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createKdfParams } from '../src/crypto';
+import { createKdfParams, sha256Hex } from '../src/crypto';
 import { MALLEABLE_WINDOW_MS, QUOTA_TOTAL } from '../src/lib/constants';
 import {
   _closeDbForTests,
@@ -33,6 +33,8 @@ const hardenedPost = (n: number, text = `第 ${n} 則`): Post => ({
   id: `p${n}`,
   n,
   text,
+  visibility: 'private',
+  contentHash: 'f'.repeat(64), // 測試 fixture，不需要是真實雜湊
   etchedAt: '2026-01-01T00:00:00.000Z',
   lastEditedAt: '2026-01-01T00:00:00.000Z',
   struckAt: null,
@@ -66,9 +68,41 @@ describe('立即發布與編號', () => {
   });
 });
 
+describe('可見性與 contentHash', () => {
+  it('預設私密；Etch 時可選公開', async () => {
+    const a = await etchText('刻給自己');
+    const b = await etchText('刻給世界', { visibility: 'public' });
+    expect(a.visibility).toBe('private');
+    expect(b.visibility).toBe('public');
+  });
+
+  it('contentHash = SHA-256(明文)，發布時計算', async () => {
+    const post = await etchText('abc');
+    expect(post.contentHash).toBe(
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    );
+  });
+
+  it('可塑期內編輯會同步更新 contentHash 與可見性', async () => {
+    const post = await etchText('原文', { visibility: 'public' });
+    const edited = await editPost(post.id, '改過的文', {
+      visibility: 'private',
+    });
+    expect(edited.contentHash).not.toBe(post.contentHash);
+    expect(edited.contentHash).toBe(await sha256Hex('改過的文'));
+    expect(edited.visibility).toBe('private');
+  });
+
+  it('編輯時不指定可見性則維持原狀', async () => {
+    const post = await etchText('原文', { visibility: 'public' });
+    const edited = await editPost(post.id, '只改字');
+    expect(edited.visibility).toBe('public');
+  });
+});
+
 describe('可塑期（固定 24 小時，錨定發布時間）', () => {
   it('可塑期內可編輯：編號不變、時限不延長', async () => {
-    const post = await etchText('初版', hoursAgo(23));
+    const post = await etchText('初版', { now: hoursAgo(23) });
     const edited = await editPost(post.id, '修過的版本');
     expect(edited.n).toBe(post.n);
     expect(edited.etchedAt).toBe(post.etchedAt);
@@ -80,7 +114,7 @@ describe('可塑期（固定 24 小時，錨定發布時間）', () => {
   });
 
   it('發布超過 24 小時後不可編輯、不可刪除（即使剛編輯過也一樣）', async () => {
-    const post = await etchText('已成定局', hoursAgo(25));
+    const post = await etchText('已成定局', { now: hoursAgo(25) });
     await expect(editPost(post.id, '想改')).rejects.toThrow(/定形/);
     await expect(deletePost(post.id)).rejects.toThrow(/定形/);
   });
@@ -108,7 +142,7 @@ describe('可塑期（固定 24 小時，錨定發布時間）', () => {
   });
 
   it('遞補不會動到已定形的編號（定形的必然在前面）', async () => {
-    const old = await etchText('已定形', hoursAgo(30));
+    const old = await etchText('已定形', { now: hoursAgo(30) });
     const fresh = await etchText('還可塑－1');
     const fresh2 = await etchText('還可塑－2');
     await deletePost(fresh.id);
@@ -148,7 +182,7 @@ describe('Strike 與不可逆性', () => {
   });
 
   it('定形後可 Strike，僅一次且不可逆；劃掉仍佔額度、編號不變', async () => {
-    const post = await etchText('曾經這樣想', hoursAgo(25));
+    const post = await etchText('曾經這樣想', { now: hoursAgo(25) });
     const struck = await strikePost(post.id);
     expect(struck.struckAt).not.toBeNull();
     expect(struck.n).toBe(1);
@@ -185,6 +219,8 @@ describe('匯入', () => {
           id: 'p2',
           n: 2,
           text: '匯出當下還在可塑期',
+          visibility: 'public',
+          contentHash: 'f'.repeat(64),
           etchedAt: hoursAgo(1).toISOString(),
           lastEditedAt: hoursAgo(1).toISOString(),
           struckAt: null,

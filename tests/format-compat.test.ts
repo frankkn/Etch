@@ -39,6 +39,8 @@ describe('格式規格相容性', () => {
         id: 'p1',
         n: 1,
         text: '刻在石頭上的話\n第二行',
+        visibility: 'private',
+        contentHash: 'a'.repeat(64),
         etchedAt: '2026-01-01T00:00:00.000Z',
         lastEditedAt: '2026-01-01T00:00:00.000Z',
         struckAt: null,

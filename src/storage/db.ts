@@ -1,6 +1,8 @@
 import { openDB, type DBSchema, type IDBPDatabase, type IDBPObjectStore } from 'idb';
-import type { KdfParams } from '../crypto';
+import { sha256Hex, type KdfParams } from '../crypto';
 import { MALLEABLE_WINDOW_MS, QUOTA_TOTAL } from '../lib/constants';
+
+export type Visibility = 'private' | 'public';
 
 /**
  * 貼文生命週期：發布（Etch）→ 可塑期 → 定形。
@@ -15,6 +17,8 @@ export interface Post {
   id: string;
   n: number; // 編號 1–100，發布時指定；可塑期中可能因較早貼文被刪除而往前遞補
   text: string;
+  visibility: Visibility; // Etch 當下選擇；Phase 1 僅記錄意向，分享頁 Phase 2 上線
+  contentHash: string; // SHA-256(明文) hex；可塑期內隨編輯更新，定形後不可變
   etchedAt: string; // 發布時間；定形時刻 = etchedAt + 24h
   lastEditedAt: string; // 發布或最後一次編輯（純紀錄，不影響任何窗口）
   struckAt: string | null; // 一旦寫入不可再改；僅限定形後
@@ -38,10 +42,10 @@ const DB_NAME = 'etch';
 let dbPromise: Promise<IDBPDatabase<EtchDB>> | null = null;
 
 function getDb(): Promise<IDBPDatabase<EtchDB>> {
-  // v3：可塑期改為固定窗口（錨定發布時間），編號發布時即指定。
-  // v1/v2 只存在於未發佈的開發期，沒有真實使用者資料，直接重建；
+  // v4：posts 加入 visibility 與 contentHash。
+  // v1–v3 只存在於未發佈的開發期，沒有真實使用者資料，直接重建；
   // 正式上線後任何 schema 變更都必須寫遷移
-  dbPromise ??= openDB<EtchDB>(DB_NAME, 3, {
+  dbPromise ??= openDB<EtchDB>(DB_NAME, 4, {
     upgrade(db) {
       for (const store of Array.from(db.objectStoreNames)) {
         db.deleteObjectStore(store);
@@ -97,9 +101,19 @@ type PostsRwStore = IDBPObjectStore<
   'readwrite'
 >;
 
+export interface EtchOptions {
+  visibility?: Visibility;
+  now?: Date;
+}
+
+// 注意：contentHash 必須在開 IndexedDB 交易之前算完——
+// 交易中 await 任何非 IDB 的 promise（如 crypto.subtle）會讓交易自動關閉。
+
 async function addPostInTx(
   store: PostsRwStore,
   text: string,
+  contentHash: string,
+  visibility: Visibility,
   now: Date,
 ): Promise<Post> {
   if (text.trim() === '') throw new Error('空白的內容無法出版');
@@ -111,6 +125,8 @@ async function addPostInTx(
     id: crypto.randomUUID(),
     n: count + 1, // 編號緊湊是全域不變量，count + 1 即最新編號
     text,
+    visibility,
+    contentHash,
     etchedAt: now.toISOString(),
     lastEditedAt: now.toISOString(),
     struckAt: null,
@@ -120,35 +136,58 @@ async function addPostInTx(
 }
 
 /** 立即出版一段文字（不經過草稿）。 */
-export async function etchText(text: string, now = new Date()): Promise<Post> {
+export async function etchText(
+  text: string,
+  { visibility = 'private', now = new Date() }: EtchOptions = {},
+): Promise<Post> {
+  const contentHash = await sha256Hex(text);
   const db = await getDb();
   const tx = db.transaction(['posts', 'drafts'], 'readwrite');
-  const post = await addPostInTx(tx.objectStore('posts'), text, now);
+  const post = await addPostInTx(
+    tx.objectStore('posts'),
+    text,
+    contentHash,
+    visibility,
+    now,
+  );
   await tx.done;
   return post;
 }
 
 /** 出版既有草稿：寫入貼文、刪除草稿，單一交易。 */
-export async function etchDraft(draftId: string, now = new Date()): Promise<Post> {
+export async function etchDraft(
+  draftId: string,
+  { visibility = 'private', now = new Date() }: EtchOptions = {},
+): Promise<Post> {
   const db = await getDb();
+  const peek = await db.get('drafts', draftId);
+  if (!peek) throw new Error('草稿不存在');
+  const contentHash = await sha256Hex(peek.text); // 交易外先算好
   const tx = db.transaction(['posts', 'drafts'], 'readwrite');
   const draft = await tx.objectStore('drafts').get(draftId);
   if (!draft) throw new Error('草稿不存在');
-  const post = await addPostInTx(tx.objectStore('posts'), draft.text, now);
+  const post = await addPostInTx(
+    tx.objectStore('posts'),
+    draft.text,
+    contentHash,
+    visibility,
+    now,
+  );
   await tx.objectStore('drafts').delete(draftId);
   await tx.done;
   return post;
 }
 
-/** 編輯：僅限可塑期內。編號不變，也不延長可塑期。 */
+/** 編輯：僅限可塑期內。編號不變、不延長可塑期；contentHash 隨內容更新。 */
 export async function editPost(
   id: string,
   text: string,
-  now = new Date(),
+  { visibility, now = new Date() }: EtchOptions = {},
 ): Promise<Post> {
   if (text.trim() === '') {
     throw new Error('不能改成空白——想抹去這則請用刪除');
   }
+  const contentHash = await sha256Hex(text); // 交易外先算好
   const db = await getDb();
   const tx = db.transaction('posts', 'readwrite');
   const post = await tx.store.get(id);
@@ -156,7 +195,13 @@ export async function editPost(
   if (!isMalleable(post, now)) {
     throw new Error('已定形——發布超過 24 小時的貼文，再也不能編輯');
   }
-  const updated: Post = { ...post, text, lastEditedAt: now.toISOString() };
+  const updated: Post = {
+    ...post,
+    text,
+    contentHash,
+    visibility: visibility ?? post.visibility,
+    lastEditedAt: now.toISOString(),
+  };
   await tx.store.put(updated);
   await tx.done;
   return updated;

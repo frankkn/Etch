@@ -32,6 +32,8 @@ Web Crypto API 都能實作解密器。repo 內附的 `public/etch-decryptor.htm
       "n": 1,
       "ciphertext": "<base64>",
       "iv": "<base64，12 bytes>",
+      "visibility": "private",
+      "contentHash": "<SHA-256(明文) 的 hex>",
       "etchedAt": "2026-01-15T08:30:00.000Z",
       "lastEditedAt": "2026-01-15T08:30:00.000Z",
       "struckAt": null
@@ -59,6 +61,8 @@ Web Crypto API 都能實作解密器。repo 內附的 `public/etch-decryptor.htm
 | `quotaUsed` | 已用額度（0–100）＝ `posts` 的則數，含可塑期中的貼文 |
 | `posts[].id` | 貼文的穩定識別碼（UUID） |
 | `posts[].n` | 貼文編號 1–100，發布時指定（＝發布順序），永遠緊湊 |
+| `posts[].visibility` | `'private'` 或 `'public'`（意向 flag；匯出檔中內容一律加密） |
+| `posts[].contentHash` | SHA-256(明文) 的小寫 hex；可塑期內隨編輯更新，定形後不可變 |
 | `posts[].etchedAt` | 發布時間；**定形時刻 = `etchedAt` + 24h**（可推導，不另存欄位） |
 | `posts[].lastEditedAt` | 發布或最後一次編輯的時間（純紀錄，不影響任何窗口） |
 | `posts[].struckAt` | 劃掉時間；未劃掉為 `null` |
@@ -129,6 +133,9 @@ for (const post of file.posts) {
 ## 安全性質與限制
 
 - 沒有通關密語就無法讀取內容。**密語遺失＝資料永久遺失**，這是設計而非缺陷。
-- 明文 metadata 洩漏的資訊：貼文數量、發文時間分佈、哪幾則被劃掉、草稿數量。
-  若這對你也是敏感資訊，請把整個檔案再放進你信任的加密容器。
+- 明文 metadata 洩漏的資訊：貼文數量、發文時間分佈、哪幾則被劃掉、草稿數量、
+  公開/私密意向。若這對你也是敏感資訊，請把整個檔案再放進你信任的加密容器。
+- `contentHash` 是明文的 SHA-256：拿到檔案的人**無法還原內容**，但可以「猜一段
+  全文並驗證是否猜中」——內容越短越可猜。這是為了支援公開驗證（Reveal 防偷改）
+  的取捨，請理解後再散佈匯出檔。
 - 匯出檔可以放在任何雲端硬碟——它的安全性來自密碼學，不來自存放位置。

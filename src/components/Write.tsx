@@ -10,6 +10,7 @@ import {
   saveDraft,
   type Draft,
   type Post,
+  type Visibility,
 } from '../storage/db';
 import { EtchConfirm } from './EtchConfirm';
 
@@ -41,12 +42,16 @@ export function Write({
         : null;
 
   const [text, setText] = useState(initialText);
+  const [visibility, setVisibility] = useState<Visibility>(
+    target.kind === 'post' ? target.post.visibility : 'private',
+  );
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setText(initialText);
+    setVisibility(target.kind === 'post' ? target.post.visibility : 'private');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetId]);
 
@@ -67,11 +72,29 @@ export function Write({
   return (
     <div className="flex flex-col gap-4">
       {target.kind === 'post' ? (
-        <p className="rounded border border-stone-800 bg-stone-900/40 p-4 text-xs leading-relaxed text-stone-400">
-          編輯 No. {target.post.n}（可塑期還剩{' '}
-          {countdownLabel(malleableRemainingMs(target.post))}
-          ）。編號不變，時限也不會延長——定形時間固定是發布後 24 小時。
-        </p>
+        <div className="flex flex-col gap-3 rounded border border-stone-800 bg-stone-900/40 p-4 text-xs leading-relaxed text-stone-400">
+          <p>
+            編輯 No. {target.post.n}（可塑期還剩{' '}
+            {countdownLabel(malleableRemainingMs(target.post))}
+            ）。編號不變，時限也不會延長——定形時間固定是發布後 24 小時。
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-stone-500">可見性：</span>
+            {(['private', 'public'] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setVisibility(v)}
+                className={`rounded border px-3 py-1 transition-colors ${
+                  visibility === v
+                    ? 'border-stone-400 bg-stone-800 text-stone-100'
+                    : 'border-stone-700 text-stone-500 hover:text-stone-300'
+                }`}
+              >
+                {v === 'private' ? '私密' : '公開'}
+              </button>
+            ))}
+          </div>
+        </div>
       ) : exhausted ? (
         <p className="rounded border border-stone-800 bg-stone-900/40 p-4 text-sm text-stone-400">
           你的 {QUOTA_TOTAL} 則已經用完了。仍然可以寫，但只能存成草稿。
@@ -92,7 +115,7 @@ export function Write({
             disabled={!canSubmit}
             onClick={() =>
               run(async () => {
-                await editPost(target.post.id, text);
+                await editPost(target.post.id, text, { visibility });
                 await onDone('timeline');
               })
             }
@@ -132,13 +155,13 @@ export function Write({
           text={text}
           quotaUsed={quotaUsed}
           onClose={() => setConfirming(false)}
-          onConfirm={async () => {
+          onConfirm={async (visibility) => {
             if (target.kind === 'draft') {
               // 先把最新內容存回草稿，出版的才是眼前這個版本
               await saveDraft(text, target.draft.id);
-              await etchDraft(target.draft.id);
+              await etchDraft(target.draft.id, { visibility });
             } else {
-              await etchText(text);
+              await etchText(text, { visibility });
             }
             await onDone('timeline');
           }}

@@ -98,6 +98,11 @@ function MalleablePostCard({
       <header className="mb-3 flex items-baseline justify-between text-xs text-stone-500">
         <span className="tabular-nums">
           No. {post.n} / {QUOTA_TOTAL}
+          {post.visibility === 'public' && (
+            <span className="ml-2 rounded border border-stone-700 px-1.5 py-0.5 text-stone-400">
+              公開
+            </span>
+          )}
           <span className="ml-2 italic text-stone-600">
             可塑期・{countdownLabel(malleableRemainingMs(post, now))}後定形
           </span>
@@ -172,6 +177,11 @@ function HardenedPostCard({
       <header className="mb-3 flex items-baseline justify-between text-xs text-stone-500">
         <span className="tabular-nums">
           No. {post.n} / {QUOTA_TOTAL}
+          {post.visibility === 'public' && (
+            <span className="ml-2 rounded border border-stone-700 px-1.5 py-0.5 text-stone-400">
+              公開
+            </span>
+          )}
         </span>
         <time dateTime={post.etchedAt}>{formatDateTime(post.etchedAt)}</time>
       </header>

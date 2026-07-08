@@ -14,6 +14,8 @@ export interface ExportedPost {
   n: number; // 編號＝發布順序；可塑期中可能因較早貼文被刪除而遞補
   ciphertext: string;
   iv: string;
+  visibility: 'private' | 'public'; // 意向 flag；匯出檔中內容一律加密
+  contentHash: string; // SHA-256(明文) hex
   etchedAt: string; // 定形時刻 = etchedAt + 24h（可推導，不另存欄位）
   lastEditedAt: string;
   struckAt: string | null;
@@ -54,6 +56,8 @@ export async function buildExportFile(
       n: post.n,
       ciphertext: blob.ciphertext,
       iv: blob.iv,
+      visibility: post.visibility,
+      contentHash: post.contentHash,
       etchedAt: post.etchedAt,
       lastEditedAt: post.lastEditedAt,
       struckAt: post.struckAt,
@@ -118,6 +122,8 @@ export async function decryptExportFile(
       id: p.id,
       n: p.n,
       text,
+      visibility: p.visibility,
+      contentHash: p.contentHash,
       etchedAt: p.etchedAt,
       lastEditedAt: p.lastEditedAt,
       struckAt: p.struckAt,

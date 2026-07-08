@@ -99,8 +99,8 @@ export function Drafts({
           text={confirming.text}
           quotaUsed={quotaUsed}
           onClose={() => setConfirmingId(null)}
-          onConfirm={async () => {
-            await etchDraft(confirming.id);
+          onConfirm={async (visibility) => {
+            await etchDraft(confirming.id, { visibility });
             await onEtched();
           }}
         />

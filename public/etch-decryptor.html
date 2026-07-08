@@ -146,7 +146,9 @@ document.getElementById('decrypt').addEventListener('click', async () => {
       const card = el('article', 'post' + (p.struckAt ? ' struck' : ''));
       const header = el('header');
       // 現行格式 n 恆為數字（發布即定號）；null 檢查是對早期開發版匯出檔的容錯
-      header.appendChild(el('span', null, p.n === null ? '（未定號）' : 'No. ' + p.n + ' / 100'));
+      const label = (p.n === null ? '（未定號）' : 'No. ' + p.n + ' / 100')
+        + (p.visibility === 'public' ? '（公開）' : '');
+      header.appendChild(el('span', null, label));
       header.appendChild(el('time', null, fmt(p.etchedAt)));
       card.appendChild(header);
       card.appendChild(el('p', 'text', text));

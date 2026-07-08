@@ -4,6 +4,7 @@ import {
   decryptText,
   deriveKey,
   encryptText,
+  sha256Hex,
 } from '../src/crypto';
 
 // 測試用低 iterations 加速；正式預設 600k 由 DEFAULT_KDF_ITERATIONS 保證
@@ -58,6 +59,12 @@ describe('crypto module', () => {
     await expect(
       deriveKey('密語', { ...params, algorithm: 'MD5' as never }),
     ).rejects.toThrow(/不支援/);
+  });
+
+  it('sha256Hex 符合已知測試向量（contentHash 的基礎）', async () => {
+    expect(await sha256Hex('abc')).toBe(
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    );
   });
 
   it('預設 iterations 不低於 600k', async () => {
