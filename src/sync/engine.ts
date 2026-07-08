@@ -1,12 +1,15 @@
 import {
+  Timestamp,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDoc,
   getDocs,
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import {
   createKdfParams,
@@ -29,6 +32,7 @@ import {
 } from '../storage/db';
 import { auth, db } from './firebase';
 import { getSessionKey, setSessionKey } from './keySession';
+import { generateSlug } from './slug';
 import {
   cloudPostDiffers,
   fromCloudDraft,
@@ -45,6 +49,7 @@ interface UserDoc {
   kdfParams?: KdfParams;
   kcv?: Kcv;
   quotaUsed?: number;
+  publicSlug?: string;
 }
 
 function requireUid(): string {
@@ -136,17 +141,45 @@ export async function pushAll(): Promise<string> {
     if (!cloud || isMalleable(post)) {
       await setDoc(doc(postsCol, post.id), await toCloudPost(post, key));
       uploaded++;
-    } else if (
+      continue;
+    }
+    // 定形後合法的變更只有兩種，Rules 各有一條放行分支，必須分開送
+    let touched = false;
+    if (
       post.struckAt !== null &&
       (cloud.struckAt === null || cloud.struckAt === undefined)
     ) {
-      // 定形後唯一合法的變更：首次 Strike
-      const struck = await toCloudPost(post, key);
-      await updateDoc(doc(postsCol, post.id), { struckAt: struck.struckAt });
+      await updateDoc(doc(postsCol, post.id), {
+        struckAt: Timestamp.fromMillis(Date.parse(post.struckAt)),
+      });
+      touched = true;
+    }
+    if (post.visibility !== cloud.visibility) {
+      if (post.visibility === 'public') {
+        // Reveal：換成明文路徑（contentHash 不變，是防偷改的錨點）
+        await updateDoc(doc(postsCol, post.id), {
+          visibility: 'public',
+          plaintext: post.text,
+          ciphertext: deleteField(),
+          iv: deleteField(),
+        });
+      } else {
+        // Unlist：回到加密儲存，不再對外展示
+        const blob = await encryptText(key, post.text);
+        await updateDoc(doc(postsCol, post.id), {
+          visibility: 'private',
+          ciphertext: blob.ciphertext,
+          iv: blob.iv,
+          plaintext: deleteField(),
+        });
+      }
+      touched = true;
+    }
+    if (touched) {
       uploaded++;
     } else {
       // 定形後的其他差異不該存在；不硬推（Rules 也會拒絕），留給人工檢查
-      console.warn(`同步略過 No. ${post.n}（定形後出現非 Strike 差異）`);
+      console.warn(`同步略過 No. ${post.n}（定形後出現非法差異）`);
       skipped++;
     }
   }
@@ -174,6 +207,15 @@ export async function pushAll(): Promise<string> {
     { kdfParams: kdf, kcv, quotaUsed: posts.length, updatedAt: serverTimestamp() },
     { merge: true },
   );
+
+  // 分享連結存在時，同步真實進度到公開的 slug 文件（分享頁只讀這份公開資料）
+  const userDoc = await fetchUserDoc(uid);
+  if (userDoc?.publicSlug) {
+    await setDoc(doc(db, 'publicSlugs', userDoc.publicSlug), {
+      uid,
+      quotaUsed: posts.length,
+    });
+  }
 
   return (
     `已同步：上傳 ${uploaded}、刪除 ${removed}` +
@@ -217,6 +259,58 @@ export async function restoreAll(passphrase: string): Promise<string> {
   if (cloudUser.kcv) await setKcv(cloudUser.kcv);
   setSessionKey(key);
   return `已還原 ${posts.length} 則貼文、${drafts.length} 則草稿`;
+}
+
+// ---- 分享連結：隨機 slug，可重生（換鎖）、可停用 ----
+
+export async function getShareSlug(): Promise<string | null> {
+  const uid = requireUid();
+  const userDoc = await fetchUserDoc(uid);
+  return userDoc?.publicSlug ?? null;
+}
+
+/** 建立分享連結。回傳新 slug。 */
+export async function enableShare(): Promise<string> {
+  const uid = requireUid();
+  const quotaUsed = (await listPosts()).length;
+  const slug = generateSlug();
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'publicSlugs', slug), { uid, quotaUsed });
+  batch.set(doc(db, 'users', uid), { publicSlug: slug, quotaUsed }, { merge: true });
+  await batch.commit();
+  return slug;
+}
+
+/** 連結重生：舊連結全部失效（換鎖），內容不動。回傳新 slug。 */
+export async function regenerateShare(): Promise<string> {
+  const uid = requireUid();
+  const userDoc = await fetchUserDoc(uid);
+  const oldSlug = userDoc?.publicSlug;
+  const quotaUsed = (await listPosts()).length;
+  const slug = generateSlug();
+  const batch = writeBatch(db);
+  if (oldSlug) batch.delete(doc(db, 'publicSlugs', oldSlug));
+  batch.set(doc(db, 'publicSlugs', slug), { uid, quotaUsed });
+  batch.set(doc(db, 'users', uid), { publicSlug: slug, quotaUsed }, { merge: true });
+  await batch.commit();
+  return slug;
+}
+
+/** 停用分享連結：門直接拆掉。公開貼文的 visibility 不變，想收回展示請逐則 Unlist。 */
+export async function disableShare(): Promise<void> {
+  const uid = requireUid();
+  const userDoc = await fetchUserDoc(uid);
+  const quotaUsed = (await listPosts()).length;
+  const batch = writeBatch(db);
+  if (userDoc?.publicSlug) {
+    batch.delete(doc(db, 'publicSlugs', userDoc.publicSlug));
+  }
+  batch.set(
+    doc(db, 'users', uid),
+    { publicSlug: deleteField(), quotaUsed },
+    { merge: true },
+  );
+  await batch.commit();
 }
 
 // ---- 自動推送：每次本地變動後（App.refresh）輕輕推一把 ----

@@ -57,7 +57,8 @@ service cloud.firestore {
             );
         }
 
-        allow read: if isOwner(); // 公開貼文的無登入讀取走分享頁（Phase 2 後段另開）
+        // 本人全讀；訪客只能讀公開貼文（分享頁查詢必須帶 visibility == 'public' 條件）
+        allow read: if isOwner() || resource.data.visibility == 'public';
 
         // 發布：etchedAt 不可指向未來（誠實時間軸），出生時不可能已被劃掉
         allow create: if isOwner()
@@ -75,12 +76,22 @@ service cloud.firestore {
           && (request.resource.data.n == resource.data.n
               || request.resource.data.n == resource.data.n - 1);
 
-        // 定形後：唯一放行「首次寫入 struckAt」，其餘欄位一個都不能動
+        // 定形後（一）：首次寫入 struckAt，其餘欄位一個都不能動
         allow update: if isOwner()
           && !isMalleableNow(resource.data)
           && resource.data.struckAt == null
           && request.resource.data.struckAt is timestamp
           && request.resource.data.diff(resource.data).affectedKeys() == ['struckAt'].toSet();
+
+        // 定形後（二）：可見性切換（Reveal / Unlist）——內容欄位對調，
+        // contentHash 是不變的錨點（明文與雜湊相符由 Cloud Function 驗證，functions/）
+        allow update: if isOwner()
+          && !isMalleableNow(resource.data)
+          && validShape(request.resource.data)
+          && request.resource.data.visibility != resource.data.visibility
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['visibility', 'ciphertext', 'iv', 'plaintext'].toSet())
+          && request.resource.data.contentHash == resource.data.contentHash;
 
         // 刪除只存在於可塑期（額度退還）；定形後 delete 永遠 false
         allow delete: if isOwner() && isMalleableNow(resource.data);
@@ -93,6 +104,24 @@ service cloud.firestore {
         // 草稿是唯一完全自由的空間
         allow read, write: if isOwner();
       }
+    }
+
+    // 分享連結：/s/{slug} → uid 的公開對照表 + 真實進度
+    match /publicSlugs/{slug} {
+      function ownsSlugDoc() {
+        return request.auth != null && request.resource.data.uid == request.auth.uid
+          && request.resource.data.quotaUsed is int
+          && request.resource.data.quotaUsed >= 0
+          && request.resource.data.quotaUsed <= 100;
+      }
+      // 知道 slug 的人才打得開（get）；不可枚舉（list）——連結不可猜測的前提
+      allow get: if true;
+      allow list: if false;
+      allow create: if ownsSlugDoc();
+      allow update: if ownsSlugDoc()
+        && request.auth.uid == resource.data.uid;
+      allow delete: if request.auth != null
+        && request.auth.uid == resource.data.uid;
     }
   }
 }

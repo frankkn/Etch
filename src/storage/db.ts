@@ -227,6 +227,28 @@ export async function deletePost(id: string, now = new Date()): Promise<void> {
   await tx.done;
 }
 
+/**
+ * Reveal / Unlist：可見性雙向切換，不需要任何等待期（已定案）。
+ * 內容、contentHash、lastEditedAt 都不動——可見性與內容不變性無關。
+ */
+export async function setPostVisibility(
+  id: string,
+  visibility: Visibility,
+): Promise<Post> {
+  const db = await getDb();
+  const tx = db.transaction('posts', 'readwrite');
+  const post = await tx.store.get(id);
+  if (!post) throw new Error('貼文不存在');
+  if (post.visibility === visibility) {
+    await tx.done;
+    return post;
+  }
+  const updated: Post = { ...post, visibility };
+  await tx.store.put(updated);
+  await tx.done;
+  return updated;
+}
+
 /** Strike：僅限定形後，每則一次，不可逆。 */
 export async function strikePost(id: string, now = new Date()): Promise<Post> {
   const db = await getDb();

@@ -11,6 +11,7 @@ import {
   deletePost,
   isMalleable,
   malleableRemainingMs,
+  setPostVisibility,
   strikePost,
   type Post,
 } from '../storage/db';
@@ -160,7 +161,30 @@ function MalleablePostCard({
   );
 }
 
-/** 定形的貼文：有編號，唯一能做的事是 Strike（一次、不可逆）。 */
+type HardenedAction = 'strike' | 'reveal' | 'unlist';
+
+const ACTION_COPY: Record<
+  HardenedAction,
+  { warning: string; button: string }
+> = {
+  strike: {
+    warning:
+      '劃掉代表「我曾經這樣想，現在不了」。貼文仍然可見、仍佔額度，且不可復原。',
+    button: 'Strike',
+  },
+  reveal: {
+    warning:
+      '公開後，這則會以明文儲存；拿到你分享連結的人都能讀到它。內容本身不會改變。',
+    button: 'Reveal',
+  },
+  unlist: {
+    warning:
+      '已看過的人、截圖與網路快取無法收回。此後這則貼文會回到加密儲存，不再對外展示。',
+    button: 'Unlist',
+  },
+};
+
+/** 定形的貼文：內容永遠不變；能做的只剩 Strike 與可見性切換。 */
 function HardenedPostCard({
   post,
   onChanged,
@@ -168,9 +192,22 @@ function HardenedPostCard({
   post: Post;
   onChanged: () => Promise<void>;
 }) {
-  const [confirming, setConfirming] = useState(false);
+  const [action, setAction] = useState<HardenedAction | null>(null);
   const [error, setError] = useState<string | null>(null);
   const struck = post.struckAt !== null;
+  const visibilityAction: HardenedAction =
+    post.visibility === 'private' ? 'reveal' : 'unlist';
+
+  const run = async (act: HardenedAction) => {
+    try {
+      if (act === 'strike') await strikePost(post.id);
+      else await setPostVisibility(post.id, act === 'reveal' ? 'public' : 'private');
+      setAction(null);
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   return (
     <article className="rounded border border-stone-800 bg-stone-900/40 p-5">
@@ -192,46 +229,49 @@ function HardenedPostCard({
       >
         {post.text}
       </p>
-      <footer className="mt-4 flex items-center justify-end text-xs">
-        {struck ? (
-          <span className="text-stone-600">
-            於 {formatDate(post.struckAt!)} 劃掉
-          </span>
-        ) : confirming ? (
+      <footer className="mt-4 flex items-center justify-end gap-3 text-xs">
+        {action !== null ? (
           <div className="flex flex-col items-end gap-2">
-            <p className="text-stone-400">
-              劃掉代表「我曾經這樣想，現在不了」。貼文仍然可見、仍佔額度，且不可復原。
+            <p className="max-w-md text-right text-stone-400">
+              {ACTION_COPY[action].warning}
             </p>
             <div className="flex gap-2">
               <button
-                onClick={() => setConfirming(false)}
+                onClick={() => setAction(null)}
                 className="rounded px-3 py-1 text-stone-400 hover:text-stone-200"
               >
                 取消
               </button>
               <button
-                onClick={async () => {
-                  try {
-                    await strikePost(post.id);
-                    await onChanged();
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : String(e));
-                  }
-                }}
+                onClick={() => void run(action)}
                 className="rounded border border-red-900 px-3 py-1 text-red-400 hover:bg-red-950"
               >
-                Strike
+                {ACTION_COPY[action].button}
               </button>
             </div>
             {error && <p className="text-red-400">{error}</p>}
           </div>
         ) : (
-          <button
-            onClick={() => setConfirming(true)}
-            className="text-stone-700 transition-colors hover:text-stone-400"
-          >
-            Strike
-          </button>
+          <>
+            <button
+              onClick={() => setAction(visibilityAction)}
+              className="text-stone-700 transition-colors hover:text-stone-400"
+            >
+              {post.visibility === 'private' ? 'Reveal' : 'Unlist'}
+            </button>
+            {!struck ? (
+              <button
+                onClick={() => setAction('strike')}
+                className="text-stone-700 transition-colors hover:text-stone-400"
+              >
+                Strike
+              </button>
+            ) : (
+              <span className="text-stone-600">
+                於 {formatDate(post.struckAt!)} 劃掉
+              </span>
+            )}
+          </>
         )}
       </footer>
     </article>
